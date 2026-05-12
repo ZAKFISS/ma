@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+import rospy
+from std_msgs.msg import Bool
+import subprocess
+import time
+
+SOUND_FILE = "/home/pi/sounds/Vois.wav"
+
+def stop_all_sound():
+    """Жёстко останавливаем все процессы звука"""
+    subprocess.call(["pkill", "-9", "-f", "aplay"], stderr=subprocess.DEVNULL)
+    subprocess.call(["pkill", "-9", "-f", "ffmpeg"], stderr=subprocess.DEVNULL)
+    time.sleep(0.1)
+
+def callback(msg):
+    if not msg.data:
+        return
+
+    rospy.loginfo("✅ Кнопка D23 нажата!")
+
+    # Проверяем, идёт ли сейчас воспроизведение
+    check = subprocess.check_output(["ps", "aux"], stderr=subprocess.DEVNULL).decode()
+    
+    if "aplay" in check and "Vois.wav" in check:
+        rospy.loginfo("⛔ Останавливаем звук...")
+        stop_all_sound()
+        rospy.loginfo("Звук остановлен")
+    else:
+        rospy.loginfo("▶️ Запускаем звук...")
+        stop_all_sound()  # на всякий случай очищаем старые процессы
+        
+        try:
+            cmd = [
+                "ffmpeg", "-i", SOUND_FILE,
+                "-filter:a", "volume=2.0",
+                "-f", "wav", "-"
+            ]
+            ffmpeg_p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            subprocess.Popen(["aplay", "-q"], stdin=ffmpeg_p.stdout)
+            rospy.loginfo("Звук запущен")
+        except Exception as e:
+            rospy.logerr(f"Ошибка: {e}")
+
+def main():
+    rospy.init_node('button_sound_player', anonymous=True)
+    rospy.Subscriber("button_d23_pressed", Bool, callback)
+    
+    rospy.loginfo("🎵 Надёжный Toggle Плеер v3 запущен")
+    rospy.loginfo("Нажми кнопку — звук вкл/выкл")
+
+    rospy.spin()
+
+if name == '__main__':
+    try:
+        main()
+    except rospy.ROSInterruptException:
+        stop_all_sound()
