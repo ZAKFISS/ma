@@ -1,0 +1,100 @@
+#include <SPI.h> // Для SPI-шины
+#include <MFRC522.h> // Для RFID-модуля
+#include <Servo.h> // Для сервопривода
+
+// --- Пины для подключения устройств ---
+#define RST_PIN   9     // Пин сброса (RST) для RFID-модуля
+#define SS_PIN    10    // Пин выбора ведомого (SDA/CS) для RFID
+#define SERVO_PIN 6     // Сигнальный пин сервопривода
+
+// --- Создаем экземпляры объектов ---
+MFRC522 mfrc522(SS_PIN, RST_PIN);
+Servo myServo;
+
+// --- Настройки системы блокировки ---
+const int lockAngle = 0;      // Угол для закрытого положения замка
+const int unlockAngle = 90;    // Угол для открытого положения замка
+const unsigned long unlockDuration = 3000; // Время удержания замка открытым (мс)
+
+// --- Список авторизованных карт (их уникальные UID) ---
+// Узнать UID своей карты можно запустив пример "DumpInfo" из библиотеки MFRC522.
+const char* authorizedUIDs[] = {"AB CD EF 12 34"}; 
+const int numOfAuthorizedCards = sizeof(authorizedUIDs) / sizeof(authorizedUIDs[0]);
+
+bool isUnlocked = false;
+unsigned long lockTime = 0;
+
+// -------------------- НАСТРОЙКА --------------------
+void setup() {
+  Serial.begin(9600);
+  SPI.begin();
+  mfrc522.PCD_Init();
+  delay(4);
+  myServo.attach(SERVO_PIN);
+  myServo.write(lockAngle); // Инициализация закрытого положения
+  Serial.println("Система готова. Приложите карту.");
+}
+
+// -------------------- ГЛАВНЫЙ ЦИКЛ --------------------
+void loop() {
+  // Проверяем, нужно ли запереть замок обратно
+  if (isUnlocked && (millis() - lockTime >= unlockDuration)) {
+    lockDoor();
+  }
+
+  // Ищем новую карту
+  if (!mfrc522.PICC_IsNewCardPresent()) return;
+  if (!mfrc522.PICC_ReadCardSerial()) return;
+
+  // Считываем UID карты в строку
+  String uidString = "";
+  for (byte i = 0; i < mfrc522.uid.size; i++) {
+    if (mfrc522.uid.uidByte[i] < 0x10) uidString += " 0";
+    else uidString += " ";
+    uidString += String(mfrc522.uid.uidByte[i], HEX);
+  }
+  uidString.toUpperCase();
+  uidString.trim();
+
+  Serial.print("Обнаружена карта с UID:");
+  Serial.println(uidString);
+
+  // Проверяем авторизацию
+  if (isAuthorized(uidString)) {
+    if (!isUnlocked) {
+      grantAccess();
+    } else {
+      Serial.println("Доступ уже получен.");
+    }
+  } else {
+    denyAccess();
+  }
+  
+  mfrc522.PICC_HaltA(); // Останавливаем текущую карту
+}
+
+// -------------------- ДОПОЛНИТЕЛЬНЫЕ ФУНКЦИИ --------------------
+bool isAuthorized(String uid) {
+  for (int i = 0; i < numOfAuthorizedCards; i++) {
+    if (uid == authorizedUIDs[i]) return true;
+  }
+  return false;
+}
+
+void grantAccess() {
+  Serial.println("* ДОСТУП РАЗРЕШЕН! *");
+  myServo.write(unlockAngle);
+  isUnlocked = true;
+  lockTime = millis();
+  Serial.println("Дверь открыта.");
+}
+
+void lockDoor() {
+  Serial.println("Дверь заперта.");
+  myServo.write(lockAngle);
+  isUnlocked = false;
+}
+
+void denyAccess() {
+  Serial.println("! ДОСТУП ЗАПРЕЩЕН :(");
+}
